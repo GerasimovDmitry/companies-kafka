@@ -1,9 +1,12 @@
 package com.example.companieskafka.m2m;
 
+import com.example.companieskafka.entity.User;
 import com.example.companieskafka.models.Users;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -26,9 +29,14 @@ public class M2MController {
         return client.signin(userDTO);
     }
 
-    @GetMapping("/users/{userId}")
-    public Boolean findById(@PathVariable Integer userId) {
+    @GetMapping("/m2m/users/findById")
+    public User findById(@RequestParam Integer userId) {
         return client.findById(userId);
+    }
+
+    @GetMapping("/m2m/users")
+    public List<User> findAllUsers() {
+        return client.findAllUsers();
     }
 
     @GetMapping("/users/getOne/{userId}")

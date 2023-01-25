@@ -1,12 +1,13 @@
 package com.example.companieskafka.controllers;
 
+import com.example.companieskafka.config.KafkaController;
+import com.example.companieskafka.entity.Company;
+import com.example.companieskafka.entity.User;
+import com.example.companieskafka.entity.UserCompany;
 import com.example.companieskafka.m2m.M2MController;
 import com.example.companieskafka.repository.CompanyRepository;
 import com.example.companieskafka.service.CompanyService;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.json.JSONObject;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.apache.kafka.common.errors.ResourceNotFoundException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +16,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+
+import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @RequestMapping(value = "/companies")
 @RestController
@@ -24,108 +28,105 @@ public class CompanyController {
     CompanyRepository repository;
 
     M2MController m2mController;
+    KafkaController kafkaController;
 
-    public CompanyController(CompanyService companyService, M2MController m2mController, CompanyRepository repository) {
+    public CompanyController(CompanyService companyService,
+                             M2MController m2mController,
+                             CompanyRepository repository,
+                             KafkaController kafkaController) {
         this.companyService = companyService;
         this.m2mController = m2mController;
         this.repository = repository;
-    }
-
-/*    @GetMapping(path = "/{companyId}")
-    public boolean findById(@PathVariable("companyId") long companyId) {
-        return companyService.findByCompanyId(companyId).isPresent();
+        this.kafkaController = kafkaController;
     }
 
     @GetMapping(path = "/all")
-    public List<String> getAll() {
-        List<String> companyDTOs = new ArrayList<>();
-        List<Company> companies = companyService.getAll();
-        for (Company company : companies) {
-            CompanyDTO companyDTO = new CompanyDTO();
-            companyDTO.setCompanyId(company.getCompanyId());
-            companyDTO.setName(company.getName());
-            companyDTO.setShortName(company.getShortName());
-            companyDTO.setOgrn(companyDTO.getOgrn());
-            if (company.getAddress() != null) {
-                companyDTO.setAddressId(company.getAddress().getAddressId());
-                companyDTO.setIndex(company.getAddress().getIndex());
-                companyDTO.setArea(company.getAddress().getArea());
-                companyDTO.setCity(company.getAddress().getCity());
-                companyDTO.setStreet(company.getAddress().getStreet());
-                companyDTO.setHomeNumber(company.getAddress().getHomeNumber());
-                companyDTO.setOfficeNumber(company.getAddress().getOfficeNumber());
+    public List<Company> getAll() {
+        return companyService.getAll();
+    }
+
+    @GetMapping(path = "/all/users-company")
+    public List<UserCompany> getAllUsersCompany() {
+        List<User> users = m2mController.findAllUsers();
+        List<Company> companies = this.companyService.getAll();
+        List<UserCompany> userCompanies = new ArrayList<>();
+        UserCompany userCompany;
+        Company company;
+        for (User user: users) {
+            if (user.getCompany_id() != null) {
+                userCompany = new UserCompany();
+                userCompany.setCompany_id(user.getCompany_id());
+                userCompany.setUser_id(user.getId());
+                UserCompany finalUserCompany = userCompany;
+
+                company = companies.stream()
+                        .filter(c -> finalUserCompany.getCompany_id().equals(c.getId()))
+                        .findAny()
+                        .orElse(null);
+                assert company != null;
+                userCompany.setCompanyName(company.getName());
+                userCompany.setIsOwner(userCompany.getUser_id().equals(company.getOwner_id()));
+                userCompany.setUsername(user.getUserName());
+                userCompany.setName(user.getName());
+                userCompany.setKeycloak_id(user.getKeycloak_id());
+                userCompanies.add(userCompany);
             }
-            if (company.getUserId() != null) {
-                String user = m2mController.getOne(company.getUserId());
-                JSONObject jsonObject = new JSONObject(user);
-                String id = String.valueOf(jsonObject.get("id"));
-                companyDTO.setId(id);
-                companyDTO.setFirstname(String.valueOf(jsonObject.get("firstname")));
-                companyDTO.setLastname(String.valueOf(jsonObject.get("lastname")));
-                companyDTO.setEmail(String.valueOf(jsonObject.get("email")));
-                companyDTO.setKeycloak_id(String.valueOf(jsonObject.get("keycloak_id")));
-                companyDTO.setUsername(String.valueOf(jsonObject.get("username")));
-                companyDTO.setPassword(String.valueOf(jsonObject.get("password")));
-                companyDTO.setRole(String.valueOf(jsonObject.get("role")));
-            }
-            companyDTOs.add(companyDTO.toString());
         }
-        return companyDTOs;
+        return userCompanies;
+    }
+
+
+    @GetMapping(path = "/findById")
+    public Company findById(@RequestParam("companyId") Integer companyId) throws ResourceNotFoundException {
+        Company company = companyService.findById(companyId);
+        System.out.println(company);
+        if (company == null) {
+            throw new ResponseStatusException(NOT_FOUND, "Unable to find resource");
+        }
+        return companyService.findById(companyId);
+    }
+
+    @GetMapping(path = "/findById/owner")
+    public ResponseEntity<?> findByIdWithOwner(@RequestParam("companyId") Integer companyId) throws ResourceNotFoundException {
+        Company company = companyService.findById(companyId);
+        if (company == null) {
+            throw new ResponseStatusException(NOT_FOUND, "Unable to find resource");
+        }
+        User owner = m2mController.findById(company.getOwner_id());
+        if (owner == null) {
+            return new ResponseEntity<Object>(
+                    "User is not found", new HttpHeaders(), HttpStatus.BAD_REQUEST);
+        } else {
+            UserCompany userCompany = new UserCompany();
+            userCompany.setCompany_id(company.getId());
+            userCompany.setUser_id(owner.getId());
+            userCompany.setKeycloak_id(owner.getKeycloak_id());
+            userCompany.setIsOwner(true);
+            userCompany.setUsername(owner.getUserName());
+            userCompany.setName(owner.getName());
+            userCompany.setCompanyName(company.getName());
+            return ResponseEntity.ok(userCompany);
+        }
     }
 
     @PostMapping(path = "/create")
     public ResponseEntity<?> createCompany(@RequestBody Company company) {
         Company companyNew = new Company();
         companyNew.setName(company.getName());
-        companyNew.setOgrn(company.getOgrn());
-        companyNew.setShortName(company.getShortName());
-        companyNew.setAddress(addressService.findByAddressId(company.getAddress().getAddressId()));
-        if (m2mController.findById(company.getUserId())) {
-            companyNew.setUserId(company.getUserId());
+
+        if (m2mController.findById(company.getOwner_id()) != null) {
+            companyNew.setOwner_id(company.getOwner_id());
         } else {
             return new ResponseEntity<Object>(
-                    "Такого пользователя не существует!", new HttpHeaders(), HttpStatus.BAD_REQUEST);
+                    "User is not found", new HttpHeaders(), HttpStatus.BAD_REQUEST);
         }
         companyService.save(company);
         return ResponseEntity.ok(company);
     }
-
-    @GetMapping(path = "getOne/{companyId}")
-    public String getOne(@PathVariable("companyId") long companyId) throws JsonProcessingException {
-        Company company = companyService.getByCompanyId(companyId);
-        Company c = new Company();
-        if (company.getDeleted() != true) {
-            c.setCompanyId(company.getCompanyId());
-            c.setName(company.getName());
-            c.setShortName(company.getShortName());
-            c.setOgrn(company.getOgrn());
-            c.setUserId(company.getUserId());
-
-            if (company.getAddress() != null) {
-                Address address = new Address();
-                address.setAddressId(company.getAddress().getAddressId());
-                address.setArea(company.getAddress().getArea());
-                address.setCity(company.getAddress().getCity());
-                address.setStreet(company.getAddress().getStreet());
-                address.setIndex(company.getAddress().getIndex());
-                address.setHomeNumber(company.getAddress().getHomeNumber());
-                address.setOfficeNumber(company.getAddress().getOfficeNumber());
-                c.setAddress(address);
-            }
-        }
-        else {
-            throw new ResponseStatusException(
-                    HttpStatus.NOT_FOUND, "Компания не актуальна!");
-        }
-
-        String json = new ObjectMapper().writeValueAsString(c);
-
-        Object userPrettyJson = new ObjectMapper().readValue(
-                json, Company.class);
-
-        String obj = new ObjectMapper().writerWithDefaultPrettyPrinter()
-                .writeValueAsString(userPrettyJson);
-
-        return obj;
-    }*/
+    @DeleteMapping("/remove")
+    public String removeCompany(@RequestParam("companyId") Integer companyId) {
+        this.companyService.remove(companyId);
+        this.kafkaController.producer.sendMessage(companyId.toString());
+        return "company with id: " + companyId.toString();
+    }
 }

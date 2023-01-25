@@ -1,5 +1,6 @@
 package com.example.companieskafka.service;
 
+import com.example.companieskafka.entity.Company;
 import com.example.companieskafka.repository.CompanyRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,24 @@ public class CompanyService {
     @Autowired
     public CompanyService(CompanyRepository repository) {
         this.companyRepository = repository;
+    }
+
+    public List<Company> getAll() {
+        return this.companyRepository.findAll();
+    }
+
+    public Company findById(Integer id) {
+        Company company = companyRepository.findById(id).orElse(null);
+        assert company != null;
+        return company;
+    }
+
+    public void save(Company company) {
+        this.companyRepository.save(company);
+    }
+
+    public void remove(Integer id) {
+        this.companyRepository.deleteById(id);
     }
 /*
     public Optional<Company> findByCompanyId(long id) {

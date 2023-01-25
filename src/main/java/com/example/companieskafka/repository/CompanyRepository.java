@@ -7,6 +7,6 @@ import org.springframework.data.jpa.repository.Query;
 
 import javax.transaction.Transactional;
 
-public interface CompanyRepository extends JpaRepository<Company, Long> {
+public interface CompanyRepository extends JpaRepository<Company, Integer> {
 
 }
